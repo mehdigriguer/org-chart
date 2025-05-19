@@ -9,17 +9,16 @@ import { dirname, resolve } from "path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// 2. Chemin absolu vers le fichier Excel
-const excelPath = resolve(__dirname, "..", "data", "tech.ops.xlsx");
+// 2. Récupérer tous les fichiers Excel du dossier data
+const dataDir = resolve(__dirname, "..", "data");
+const excelFiles = fs
+  .readdirSync(dataDir)
+  .filter((file) => file.endsWith(".xlsx"))
+  .map((file) => resolve(dataDir, file));
 
-// 3. Lecture du workbook et de la première feuille
-const workbook = xlsx.readFile(excelPath);
-const sheet = workbook.Sheets[workbook.SheetNames[0]];
-
-// 4. Définition des en-têtes et extraction des lignes (sauter les 2 premières lignes)
+// 3. Définir les en-têtes et type de ligne
 const headers = [
   "Employé",
-  "Matricule de l'employé",
   "Poste",
   "Organisation hiérarchique",
   "Téléphone",
@@ -28,13 +27,7 @@ const headers = [
 ] as const;
 type Row = Record<(typeof headers)[number], string>;
 
-const rows: Row[] = xlsx.utils.sheet_to_json<Row>(sheet, {
-  header: Array.from(headers),
-  range: 2, // sauter les 2 premières lignes
-  defval: "",
-});
-
-// 5. Type Dept. et mapping
+// 4. Mapping des départements
 
 type Department =
   | "Direction Générale"
@@ -54,7 +47,7 @@ function mapDepartment(poste: string): Department {
   return "Tech.ops";
 }
 
-// 6. Construction des membres
+// 5. Interface étendue
 
 interface OrgMemberExtended {
   id: string;
@@ -62,47 +55,62 @@ interface OrgMemberExtended {
   title: string;
   department: Department;
   location: string;
-  avatarUrl: string; // ajouté pour satisfaire OrgMember
-  phone: string; // ajouté pour le téléphone
-  email: string; // ajouté pour l'email
+  avatarUrl: string;
+  phone: string;
+  email: string;
   managerName?: string;
 }
 
-const members: OrgMemberExtended[] = rows
-  .map((r, index) => {
-    const name = r["Employé"].trim();
-    if (!name) return null;
+// 6. Extraction et agrégation des données
+let members: OrgMemberExtended[] = [];
+excelFiles.forEach((excelPath) => {
+  const workbook = xlsx.readFile(excelPath);
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: Row[] = xlsx.utils.sheet_to_json<Row>(sheet, {
+    header: Array.from(headers),
+    range: 2, // sauter les 2 premières lignes
+    defval: "",
+  });
 
-    const poste = r["Poste"].trim();
-    const title = poste.split(/\s+/)[0] || "";
-    const department = mapDepartment(poste);
-    const location = r["Site"].trim();
+  const fileMembers = rows
+    .map((r, index) => {
+      const name = r["Employé"].trim();
+      if (!name) return null;
 
-    // Nettoyage du téléphone : garder seulement le numéro, supprimer tout ce qui suit une parenthèse
-    const rawPhone = r["Téléphone"].trim();
-    const phone = rawPhone.replace(/\s*\(.*\)$/, "");
+      const poste = r["Poste"].trim();
+      const title = poste.split(/\s+/)[0] || "";
+      const department = mapDepartment(poste);
+      const location = r["Site"].trim();
 
-    const email = r["E-mail"].trim();
+      // Nettoyage du téléphone
+      const rawPhone = r["Téléphone"].trim();
+      const phone = rawPhone.replace(/\s*\(.*\)$/, "");
 
-    const orgField = r["Organisation hiérarchique"].trim();
-    const match = orgField.match(/\(([^)]+)\)\s*$/);
-    const managerName = match?.[1].trim();
+      const email = r["E-mail"].trim();
 
-    return {
-      id: `member_${index + 1}`,
-      name,
-      title,
-      department,
-      location,
-      avatarUrl: "", // valeur par défaut
-      phone,
-      email,
-      ...(managerName && { managerName }),
-    };
-  })
-  .filter((m): m is OrgMemberExtended => m !== null);
+      // Extraction du managerName depuis des parenthèses, quel que soit le format précédent
+      const orgField = r["Organisation hiérarchique"].trim();
+      const managerMatch = orgField.match(/\(([^)]+)\)/);
+      const managerName = managerMatch?.[1].trim();
 
-// 6a. Ajouter le CEO
+      return {
+        id: `member_${members.length + index + 1}`,
+        name,
+        title,
+        department,
+        location,
+        avatarUrl: "",
+        phone,
+        email,
+        ...(managerName && { managerName }),
+      };
+    })
+    .filter((m): m is OrgMemberExtended => m !== null);
+
+  members = members.concat(fileMembers);
+});
+
+// 7. Ajouter le CEO
 members.push({
   id: "member_ceo",
   name: "David LAYANI",
@@ -114,11 +122,10 @@ members.push({
   email: "",
 });
 
-// 7. Génération du contenu TypeScript
+// 8. Génération et écriture du fichier TypeScript
 const content = `// ce fichier est généré automatiquement. NE PAS MODIFIER à la main.
 import { OrgMember } from "../data/orgChartData";
 
-// managerName relie chaque employé à son manager. Le CEO n'a pas de managerName.
 export const orgData: (OrgMember & { managerName?: string; phone: string; email: string })[] = ${JSON.stringify(
   members,
   null,
@@ -126,7 +133,6 @@ export const orgData: (OrgMember & { managerName?: string; phone: string; email:
 )};
 `;
 
-// 8. Formatage et écriture du fichier généré
 (async () => {
   try {
     const formatted = await prettier.format(content, { parser: "typescript" });
