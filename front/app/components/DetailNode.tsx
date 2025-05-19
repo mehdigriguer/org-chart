@@ -1,4 +1,3 @@
-// src/components/DetailNode.tsx
 "use client";
 
 import React from "react";
@@ -6,7 +5,7 @@ import type { OrgMember } from "../data/orgChartData";
 import OrgChartNode from "./OrgChartNode";
 
 interface DetailNodeProps {
-  member: OrgMember;
+  member: OrgMember & { phone?: string; email?: string };
   onClose: () => void;
 }
 
@@ -29,30 +28,22 @@ const DetailNode: React.FC<DetailNodeProps> = ({ member, onClose }) => {
           name={member.name}
           title={member.title}
           department={member.department}
+          location={member.location}
         />
       </div>
 
       {/* Détails complémentaires */}
       <div className="space-y-4 text-sm text-gray-700">
-        {/* Exemple de champs supplémentaires */}
-        <div>
-          <h4 className="font-medium text-gray-900">Email</h4>
-          <p>prenom.nom@entreprise.com</p>
-        </div>
-        <div>
-          <h4 className="font-medium text-gray-900">Téléphone</h4>
-          <p>+33 1 23 45 67 89</p>
-        </div>
-        {member.children && member.children.length > 0 && (
+        {member.email && (
           <div>
-            <h4 className="font-medium text-gray-900">Équipe directe</h4>
-            <ul className="list-disc list-inside space-y-1">
-              {member.children.map((c) => (
-                <li key={c.id}>
-                  <span className="font-medium">{c.name}</span> — {c.title}
-                </li>
-              ))}
-            </ul>
+            <h4 className="font-medium text-gray-900">Email</h4>
+            <p>{member.email}</p>
+          </div>
+        )}
+        {member.phone && (
+          <div>
+            <h4 className="font-medium text-gray-900">Téléphone</h4>
+            <p>{member.phone}</p>
           </div>
         )}
       </div>

@@ -16,7 +16,7 @@ const excelPath = resolve(__dirname, "..", "data", "tech.ops.xlsx");
 const workbook = xlsx.readFile(excelPath);
 const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
-// 4. Définition des en-têtes et extraction des lignes
+// 4. Définition des en-têtes et extraction des lignes (sauter les 2 premières lignes)
 const headers = [
   "Employé",
   "Matricule de l'employé",
@@ -30,11 +30,12 @@ type Row = Record<(typeof headers)[number], string>;
 
 const rows: Row[] = xlsx.utils.sheet_to_json<Row>(sheet, {
   header: Array.from(headers),
-  range: 1,
+  range: 2, // sauter les 2 premières lignes
   defval: "",
 });
 
 // 5. Type Dept. et mapping
+
 type Department =
   | "Direction Générale"
   | "Techstud.io"
@@ -54,6 +55,7 @@ function mapDepartment(poste: string): Department {
 }
 
 // 6. Construction des membres
+
 interface OrgMemberExtended {
   id: string;
   name: string;
@@ -61,6 +63,8 @@ interface OrgMemberExtended {
   department: Department;
   location: string;
   avatarUrl: string; // ajouté pour satisfaire OrgMember
+  phone: string; // ajouté pour le téléphone
+  email: string; // ajouté pour l'email
   managerName?: string;
 }
 
@@ -74,6 +78,12 @@ const members: OrgMemberExtended[] = rows
     const department = mapDepartment(poste);
     const location = r["Site"].trim();
 
+    // Nettoyage du téléphone : garder seulement le numéro, supprimer tout ce qui suit une parenthèse
+    const rawPhone = r["Téléphone"].trim();
+    const phone = rawPhone.replace(/\s*\(.*\)$/, "");
+
+    const email = r["E-mail"].trim();
+
     const orgField = r["Organisation hiérarchique"].trim();
     const match = orgField.match(/\(([^)]+)\)\s*$/);
     const managerName = match?.[1].trim();
@@ -85,6 +95,8 @@ const members: OrgMemberExtended[] = rows
       department,
       location,
       avatarUrl: "", // valeur par défaut
+      phone,
+      email,
       ...(managerName && { managerName }),
     };
   })
@@ -96,8 +108,10 @@ members.push({
   name: "David LAYANI",
   title: "CEO",
   department: "Direction Générale",
-  location: "Paris",
+  location: "",
   avatarUrl: "",
+  phone: "",
+  email: "",
 });
 
 // 7. Génération du contenu TypeScript
@@ -105,7 +119,7 @@ const content = `// ce fichier est généré automatiquement. NE PAS MODIFIER à
 import { OrgMember } from "../data/orgChartData";
 
 // managerName relie chaque employé à son manager. Le CEO n'a pas de managerName.
-export const orgData: (OrgMember & { managerName?: string })[] = ${JSON.stringify(
+export const orgData: (OrgMember & { managerName?: string; phone: string; email: string })[] = ${JSON.stringify(
   members,
   null,
   2
