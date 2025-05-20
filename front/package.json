@@ -2,6 +2,7 @@
   "name": "front",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "generate": "ts-node --esm ./app/scripts/generateOrgData.ts",
     "dev": "npm run generate && next dev --turbopack",
@@ -9,7 +10,11 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@headlessui/react": "^2.2.3",
+    "@studio-freight/react-lenis": "^0.0.47",
+    "framer-motion": "^12.12.1",
+    "gsap": "^3.13.0",
     "lucide-react": "^0.511.0",
     "next": "15.3.2",
     "prettier": "^3.5.3",

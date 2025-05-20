@@ -1,67 +1,83 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { Tree, TreeNode } from "react-organizational-chart";
+import dynamic from "next/dynamic";
 import OrgChartNode from "./OrgChartNode";
-import CollapseControl from "./CollapseControl";
+import CollapseControl from "./control/CollapseControl";
 import DetailNode from "./DetailNode";
-import LocationFilter from "./LocationFilter";
-import PaginationControl from "./PaginationControl";
-import type { OrgMember } from "../data/orgChartData";
-import { orgData } from "../data/orgChartData";
+import PaginationControl from "./control/PaginationControl";
+import type { Membre } from "../types/Membre";
+import { orgData } from "../data/orgChartData.generated";
 import { Transition } from "@headlessui/react";
 
-export default function OrgChart() {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    member_ceo: true,
+// Import dynamique de Tree et TreeNode, désactivant le SSR
+const Tree = dynamic(
+  () => import("react-organizational-chart").then((mod) => mod.Tree),
+  { ssr: false }
+);
+const TreeNode = dynamic(
+  () => import("react-organizational-chart").then((mod) => mod.TreeNode),
+  { ssr: false }
+);
+
+type OrgChartProps = {
+  selectedCommunities?: string[];
+};
+
+export default function OrgChart({ selectedCommunities }: OrgChartProps) {
+  const roots = useMemo(() => orgData.filter((m) => !m.nomManager), []);
+
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    roots.forEach((root) => {
+      init[root.id] = true;
+    });
+    return init;
   });
-  const [selectedMember, setSelectedMember] = useState<OrgMember | null>(null);
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([
-    "Paris",
-  ]);
+
+  const [selectedMember, setSelectedMember] = useState<Membre | null>(null);
   const [pageMap, setPageMap] = useState<Record<string, number>>({});
 
-  const maxKidsPerPage = 3;
-  const toggle = (id: string) =>
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
-  const toggleLocation = (loc: string) =>
-    setSelectedLocations((prev) =>
-      prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc]
-    );
+  const maxKidsPerPage = 4;
+
+  // Toggle expand/collapse, et reset page à 1 lorsque l'on ouvre
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const willExpand = !prev[id];
+      if (willExpand) {
+        setPageMap((pm) => ({ ...pm, [id]: 1 }));
+      }
+      return { ...prev, [id]: willExpand };
+    });
+  };
+
   const setPage = useCallback((parentId: string, page: number) => {
     setPageMap((prev) => ({ ...prev, [parentId]: page }));
   }, []);
 
-  // 1. Construire la map managerName → enfants
+  const filteredData = useMemo(() => {
+    if (selectedCommunities && selectedCommunities.length > 0) {
+      return orgData.filter((m) => {
+        const comm = m.communaute
+          ? Array.isArray(m.communaute)
+            ? m.communaute
+            : [m.communaute]
+          : [];
+        return comm.some((c) => selectedCommunities.includes(c));
+      });
+    }
+    return orgData;
+  }, [selectedCommunities]);
+
   const childrenMap = useMemo(() => {
-    const map: Record<string, (OrgMember & { managerName?: string })[]> = {};
-    orgData.forEach((m) => {
-      if (m.managerName) {
-        map[m.managerName] ||= [];
-        map[m.managerName].push(m);
+    const map: Record<string, Membre[]> = {};
+    filteredData.forEach((m) => {
+      if (m.nomManager) {
+        map[m.nomManager] ||= [];
+        map[m.nomManager].push(m);
       }
     });
     return map;
-  }, []);
+  }, [filteredData]);
 
-  // 2. Filtrage récursif par localisation
-  const filterRec = useCallback(
-    (node: OrgMember & { managerName?: string }): boolean => {
-      const self = selectedLocations.includes(node.location);
-      const kids = childrenMap[node.name] || [];
-      return self || kids.some((c) => filterRec(c));
-    },
-    [childrenMap, selectedLocations]
-  );
-
-  // 3. Racines
-  const roots = useMemo(
-    () =>
-      orgData
-        .filter((m) => !m.managerName)
-        .filter((m) => (selectedLocations.length ? filterRec(m) : true)),
-    [filterRec, selectedLocations]
-  );
-
-  // 4. Affichage conditionnel des enfants
   const getDisplayedChildren = (name: string) => {
     const all = childrenMap[name] || [];
     const open = all.filter((c) => expanded[c.id]);
@@ -70,20 +86,20 @@ export default function OrgChart() {
 
   const getLastName = (s: string) => s.trim().split(" ").slice(-1)[0];
 
-  // 5. Rendu récursif
-  const renderTree = (member: OrgMember & { managerName?: string }) => {
-    const rawKids = getDisplayedChildren(member.name).filter((c) =>
-      selectedLocations.length ? filterRec(c) : true
-    );
+  const renderTree = (member: Membre) => {
+    const rawKids = getDisplayedChildren(member.nom);
     const sortedKids = [...rawKids].sort((a, b) => {
       const diff =
-        (childrenMap[b.name]?.length || 0) - (childrenMap[a.name]?.length || 0);
+        (childrenMap[b.nom]?.length || 0) - (childrenMap[a.nom]?.length || 0);
       if (diff !== 0) return diff;
-      return getLastName(a.name).localeCompare(getLastName(b.name));
+      return getLastName(a.nom).localeCompare(getLastName(b.nom));
     });
 
     const isExp = !!expanded[member.id];
-    const currentPage = pageMap[member.id] ?? 1;
+    const totalPages = Math.ceil(sortedKids.length / maxKidsPerPage) || 1;
+    // Clamp : si pageMap[member.id] > totalPages, on retombe sur totalPages
+    const currentPage = Math.min(pageMap[member.id] ?? 1, totalPages);
+
     const paginated = sortedKids.slice(
       (currentPage - 1) * maxKidsPerPage,
       currentPage * maxKidsPerPage
@@ -95,11 +111,7 @@ export default function OrgChart() {
         label={
           <div className="flex justify-center">
             <OrgChartNode
-              avatarUrl={member.avatarUrl}
-              name={member.name}
-              title={member.title}
-              department={member.department}
-              location={member.location}
+              membre={member}
               onClick={() => setSelectedMember(member)}
             />
           </div>
@@ -108,7 +120,6 @@ export default function OrgChart() {
         {sortedKids.length > 0 && (
           <TreeNode
             label={
-              // wrapper en grid 3 colonnes : [1fr auto 1fr]
               <div
                 className="relative w-full grid"
                 style={{
@@ -116,17 +127,14 @@ export default function OrgChart() {
                   alignItems: "center",
                 }}
               >
-                {/* case gauche vide */}
                 <div />
 
-                {/* case centrale : collapse centré */}
                 <CollapseControl
                   isExpanded={isExp}
                   onToggle={() => toggle(member.id)}
-                  childrenCount={childrenMap[member.name]?.length || 0}
+                  childrenCount={childrenMap[member.nom]?.length || 0}
                 />
 
-                {/* case droite : pagination alignée à droite */}
                 {sortedKids.length > maxKidsPerPage && isExp && (
                   <PaginationControl
                     currentPage={currentPage}
@@ -152,25 +160,25 @@ export default function OrgChart() {
 
   return (
     <div className="relative">
-      <LocationFilter selected={selectedLocations} onToggle={toggleLocation} />
-
       <div
-        className={`transition-all duration-200 ${selectedMember ? "filter blur-xs" : ""} flex justify-center`}
+        className={`transition-all duration-200 ${
+          selectedMember ? "filter blur-xs" : ""
+        } flex justify-center`}
       >
         {roots.map((root) => {
-          const rawKids = getDisplayedChildren(root.name).filter((c) =>
-            selectedLocations.length ? filterRec(c) : true
-          );
+          const rawKids = getDisplayedChildren(root.nom);
           const sortedKids = [...rawKids].sort((a, b) => {
             const diff =
-              (childrenMap[b.name]?.length || 0) -
-              (childrenMap[a.name]?.length || 0);
+              (childrenMap[b.nom]?.length || 0) -
+              (childrenMap[a.nom]?.length || 0);
             if (diff !== 0) return diff;
-            return getLastName(a.name).localeCompare(getLastName(b.name));
+            return getLastName(a.nom).localeCompare(getLastName(b.nom));
           });
 
           const isExp = !!expanded[root.id];
-          const currentPage = pageMap[root.id] ?? 1;
+          const totalPages = Math.ceil(sortedKids.length / maxKidsPerPage) || 1;
+          const currentPage = Math.min(pageMap[root.id] ?? 1, totalPages);
+
           const paginated = sortedKids.slice(
             (currentPage - 1) * maxKidsPerPage,
             currentPage * maxKidsPerPage
@@ -185,11 +193,7 @@ export default function OrgChart() {
               label={
                 <div className="flex justify-center">
                   <OrgChartNode
-                    avatarUrl={root.avatarUrl}
-                    name={root.name}
-                    title={root.title}
-                    department={root.department}
-                    location={root.location}
+                    membre={root}
                     onClick={() => setSelectedMember(root)}
                   />
                 </div>
@@ -208,7 +212,7 @@ export default function OrgChart() {
                     <CollapseControl
                       isExpanded={isExp}
                       onToggle={() => toggle(root.id)}
-                      childrenCount={childrenMap[root.name]?.length || 0}
+                      childrenCount={childrenMap[root.nom]?.length || 0}
                     />
                     {sortedKids.length > maxKidsPerPage && isExp && (
                       <PaginationControl
@@ -250,7 +254,7 @@ export default function OrgChart() {
             aria-modal="true"
           >
             <DetailNode
-              member={selectedMember}
+              membre={selectedMember}
               onClose={() => setSelectedMember(null)}
             />
           </div>

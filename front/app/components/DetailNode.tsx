@@ -1,15 +1,17 @@
+// DetailMembre.tsx
+
 "use client";
 
 import React from "react";
-import type { OrgMember } from "../data/orgChartData";
+import type { Membre } from "../types/Membre";
 import OrgChartNode from "./OrgChartNode";
 
 interface DetailNodeProps {
-  member: OrgMember & { phone?: string; email?: string };
+  membre: Membre;
   onClose: () => void;
 }
 
-const DetailNode: React.FC<DetailNodeProps> = ({ member, onClose }) => {
+const DetailNode: React.FC<DetailNodeProps> = ({ membre, onClose }) => {
   return (
     <div className="relative bg-white rounded-2xl shadow-lg w-full max-w-md p-6">
       {/* Bouton fermer */}
@@ -23,27 +25,21 @@ const DetailNode: React.FC<DetailNodeProps> = ({ member, onClose }) => {
 
       {/* En-tête avec OrgChartNode */}
       <div className="mb-6">
-        <OrgChartNode
-          avatarUrl={member.avatarUrl}
-          name={member.name}
-          title={member.title}
-          department={member.department}
-          location={member.location}
-        />
+        <OrgChartNode membre={membre} />
       </div>
 
       {/* Détails complémentaires */}
       <div className="space-y-4 text-sm text-gray-700">
-        {member.email && (
+        {membre.email && (
           <div>
             <h4 className="font-medium text-gray-900">Email</h4>
-            <p>{member.email}</p>
+            <p>{membre.email}</p>
           </div>
         )}
-        {member.phone && (
+        {membre.telephone && (
           <div>
             <h4 className="font-medium text-gray-900">Téléphone</h4>
-            <p>{member.phone}</p>
+            <p>{membre.telephone}</p>
           </div>
         )}
       </div>

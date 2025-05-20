@@ -16,7 +16,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <title>Org Chart Demo</title>
       </head>
       <body className="relative overflow-hidden">
-        {/* Calque dégradé derrière tout le contenu */}
         <div
           className="
             fixed inset-0
