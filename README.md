@@ -1,88 +1,130 @@
 # ONEPOINT Organizational Chart
 
-Cette application est un organigramme intéractif de OnePoint à partir des données récupérées automatiquement sur Workday.  
-Elle repose sur une architecture statique et scalable entièrement déployée sur AWS à l’aide de Terraform et automatisée avec des CI/CD pipelines.
+Cette application est un organigramme interactif de OnePoint à partir des données récupérées automatiquement sur Workday.
+Elle repose sur une architecture conteneurisée et scalable entièrement déployée sur AWS à l’aide de Terraform et automatisée avec des CI/CD pipelines.
+
+---
 
 ## Plan d'action
 
-1. Fonction **AWS Lambda** (script python) qui scrap les données depuis Workday :
+### 1. Fonction **AWS Lambda** (script Python) pour scraper Workday
 
-   - Planification mensuelle de la fonction Lambda avec **Amazon EventBridge**.
-   - Récupère les credentials workday depuis **AWS Secrets Manager**.
-   - Intercèpte la requête pour télécharger le csv contenant les données des employés.
-   - 1 csv = 1 communauté.
-   - Stocke chaque csv brut dans un bucket **S3** (`raw/`) et le compare au csv précédant pour ne màj que les nouvautés (départs et arrivés).
-     Potentiellement pour récupérer les photos de chacun :
-   - Appeler l'**API Microsoft Graph** pour récupérer la photo utilisée dans Outlook à partir du mail du collaborateur.
-   - Dans le csv il y a une référence à des objets S3 qui stockent les images des collaborateurs.
+- Planification mensuelle de la fonction **Lambda** avec **Amazon EventBridge**.
+- Récupère les credentials workday depuis **AWS Secrets Manager**.
+- Intercèpte la requête pour télécharger le csv contenant les données des employés.
+- 1 csv = 1 lieu (paris.csv, lyon.csv ...)
+- Stocke chaque csv brut dans un bucket **S3** (`raw/`) et le compare au csv précédant pour ne màj que les nouvautés (départs et arrivés).
+- Génère un JSON contenant toutes les info sur les collaborateurs (possible utilisation d'AWS RDS si j'ai le temps après).
 
-2. Génération du site statique **Next.js (SSG)** :
+  Potentiellement pour récupérer les photos de chacun :
 
-   - Utilisation de `getStaticProps` pour charger le csv depuis S3.
-   - Utiliser ce csv pour afficher l'org chart (le front).
-   - L'App Pipeline va build l'app et générer le dossier statique `out/` qu'on stocke dans un bucket **S3**.
-   - Quand lancer l'App Pipeline ?
-     - à chaque changement du csv contenant la data Workday à l'aide d'un **EventBridge S3** (déclenchement mensuel)
-     - à chaque push sur le main du repo git, qui indique un changement dans le front de l'application
+  - Interroger l'**API Microsoft Graph** pour récupérer la photo utilisée dans Outlook à partir du mail du collaborateur.
+  - Dans le csv il y a une référence à des objets S3 qui stockent les images des collaborateurs.
+  - On interroge l'API que la première fois, par la suite on va voirImplémenter un cache pour ne pas interroger l'API à chaque run Lambda.
 
-3. Distribution du frontend avec **Amazon CloudFront** à partir du site statique stocké sur S3 (utilisation de CloudFront plus pour SSL/TLS que pour le CDN) :
+---
 
-   - Utilisation de **Route 53** pour mapper le nom de domaine à la distribution CloudFront
-   - Utilisation de CloudFront pour avoir HTTPS avec le certificat TLS, pas pour le CDN. S3 propose que HTTP.
+### 2. Génération du site statique **Next.js (SSG)**
 
-4. Gestion d'infrastructure **Infrastructure as Code** via **Terraform** :
+- Utilisation de `getStaticProps` pour charger le csv depuis S3.
+- Utiliser ce csv pour afficher l'org chart (le front).
+- L’App Pipeline va build le site, le package dans une **image Docker (NGINX)** et le conteneur associé est publié sur **Amazon ECR**.
+- La dernière image est déployée automatiquement sur une instance **EC2** dédiée.
 
-   Modules pour :
+  Quand est-ce que l'App Pipeline se trigger ?
 
-   - Gestion de l'état (`backend { s3 + DynamoDB lock }`).
-   - Secrets Manager, IAM Roles & Policies.
-   - Lambda, EventBridge, S3, CloudFront.
-   - CodePipeline & CodeBuild.
+  - Nouveau fichier CSV dans S3 (`raw/`) (déclenchement mensuel par EventBridge).
+  - Push dans `/app/` qui indique un changement du front de l'appli.
 
-5. **CI/CD** entièrement automatisé pour l'infra et l'application.
+---
 
-   **Infra Pipeline**
+### 3. Distribution du site avec **EC2 + Docker + ALB + ASG**
 
-   - Trigger : Lorsqu’on push une modification dans le dossier /Terraform du repo git.
-   - Actions : Il récupère la dernière configuration Terraform, la valide, puis provisionne ou met à jour toutes les ressources AWS (rôles IAM, Secrets Manager, buckets S3, distributions CloudFront, Lambda, EventBridge, etc.).
-   - Pourquoi ? Pour s’assurer que l’infrastructure correspond toujours au code déclaratif stocké en Git.
+- Le site est servi par **NGINX dans un conteneur Docker** tournant sur EC2.
+- Un **Application Load Balancer (ALB)** en amont :
+  - Fournit un point d’entrée HTTPS grâce à un certificat **ACM**.
+  - Redirige le trafic vers un **Target Group** contenant l’instance EC2.
+- Un **Auto Scaling Group (ASG)** associé à l'ALB pour éviter un single point of failure sur l'EC2.
+- Le domaine custom est mappé via **Route 53** vers le ALB.
+- Le conteneur expose le port 80, redirigé automatiquement via l’ALB.
+- Possibilité d’ajouter des instances à l’avenir (scalabilité horizontale).
 
-   **Scraper Pipeline**
+---
 
-   - Trigger : Lorsqu’on push une modification dans le dossier /lambda du repo git (modif du code du scrapper).
-   - Actions : Il installe d’abord les dépendances Python du scraper, exécute éventuellement les tests unitaires pour vérifier que le script produit bien un csv valide, puis regroupe le code et ses librairies en un package. Enfin, il met à jour la fonction AWS Lambda existante avec ce nouveau package.
-   - Pourquoi ? Pour que toute évolution du scraper (nouveaux champs extraits, optimisation du parsing…) soit immédiatement déployée dans la fonction Lambda sans passer par les autres pipelines.
+### 4. Gestion d'infrastructure **Infrastructure as Code** via **Terraform** :
 
-   **App Pipeline**
+Des modules sont utilisés pour gérer :
 
-   - Trigger :
-     - 1 - Dès qu’un nouveau fichier csv apparaît dans le préfixe raw/ du bucket S3 (grâce à un événement EventBridge).
-     - 2 - Lorsqu’on push une modification dans le dossier /app du repo git (modif du front Next.js).
-   - Actions : Il récupère le code de l’application Next.js, lit le dernier csv dans S3, regénère l’ensemble du site statique en y incorporant les nouvelles données, puis synchronise les fichiers produits sur le bucket “website” S3. Enfin, il purge (invalide) le cache CloudFront pour que les utilisateurs voient tout de suite la mise à jour de l’organigramme.
-   - Pourquoi ? Pour automatiser la mise à jour des données présentées, sans avoir à toucher au code, dès qu’un scraping Workday a eu lieu.
+- **État Terraform** : Backend avec S3 + DynamoDB pour le verrouillage.
+- **IAM & Roles** : EC2, Lambda, CodePipeline...
+- **Réseau** : VPC, Subnets publics, Security Groups.
+- **ALB** : Load balancer, Target Group, Listener HTTPS.
+- **ACM** : Certificat TLS pour domaine personnalisé.
+- **EC2** : Déploiement et configuration de la VM avec **Ansible** pour installer Docker et lancer le conteneur.
+- **ECR** : Stockage de l’image Docker de l’application.
+- **CodePipeline / CodeBuild** : Déploiement continu.
+
+---
+
+### 5. **CI/CD** entièrement automatisé pour l'infra et l'application.
+
+#### 🛠 Infra Pipeline
+
+- **Trigger** : Push dans `/terraform/`.
+- **Actions** :
+
+  - Récupère la dernière configuration Terraform
+  - Provisionne ou met à jour toutes les ressources AWS : EC2, ALB, IAM, Secrets, Lambda, S3, etc.
+
+#### 🐍 Scraper Pipeline
+
+- **Trigger** : Push dans `/lambda/`.
+- **Actions** :
+
+  - Installe les dépendances Python.
+  - Vérifie la validité du JSON généré avec tests unitaire.
+  - Regroupe le code et les libraires dans un package.
+  - Mise à jour de la fonction Lambda avec ce package.
+
+#### 🌐 App Pipeline
+
+- **Triggers** :
+
+  - Nouveau fichier CSV dans S3 (`raw/`) (déclenchement mensuel par EventBridge).
+  - Push dans `/app/` qui indique un changement du front de l'appli.
+
+- **Actions** :
+
+  1. `next build && next export`
+  2. Création de l’image Docker avec NGINX servant le dossier `out/`
+  3. Push de l’image vers **Amazon ECR**
+  4. Mise à jour avec **Ansible** de l’instance EC2 pour pull et redémarrer le conteneur via SSH ou SSM
+
+---
 
 ## Structure du projet
 
 ```bash
-├── terraform/                   # Modules et configuration Terraform
+├── terraform/                     # Modules et config Terraform
 │   ├── backend.tf
 │   ├── modules/
 │   │   ├── lambda-scraper/
 │   │   ├── s3-data/
-│   │   ├── s3-website/
-│   │   ├── cloudfront/
+│   │   ├── ecr/
+│   │   ├── ec2-nginx/
+│   │   ├── alb/
 │   │   └── cicd/
 │   └── env/
-├── lambda/                      # AWS Lambda (script scraper py)
+├── lambda/                        # AWS Lambda (scraper)
 │   └── scraper.py
-├── app/                         # Application Next.js statique
+├── app/                           # Application Next.js statique
 │   ├── next.config.js
+│   ├── Dockerfile                 # Conteneur Docker NGINX
 │   ├── package.json
-│   ├── public/
 │   ├── pages/
 │   ├── components/
 │   └── lib/
-├── buildspec-nextjs.yml         # Instructions CodeBuild pour Next.js
-├── buildspec-infra.yml          # Instructions CodeBuild pour Terraform
-└── README.md                    # Ce fichier
+├── buildspec-nextjs.yml           # Build & push Docker image
+├── buildspec-infra.yml            # Terraform validation & apply
+└── README.md                      # Ce fichier
 ```
