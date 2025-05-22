@@ -12,7 +12,6 @@ export interface OrgChartNodeProps {
 
 const OrgChartNode: React.FC<OrgChartNodeProps> = ({ membre, onClick }) => {
   const { border, bg, text } = colorMap[membre.communaute];
-  console.log(border, bg, text);
 
   return (
     <div
