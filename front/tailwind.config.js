@@ -1,3 +1,4 @@
+// tailwind.config.js
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
@@ -12,7 +13,7 @@ module.exports = {
   },
   plugins: [],
   safelist: [
-    // Patterns to cover dynamic community colors
+    // Couleurs dynamiques par défaut
     {
       pattern:
         /border-(blue|red|orange|green|purple|pink|gray|teal|amber|cyan)-500/,
@@ -25,9 +26,15 @@ module.exports = {
       pattern:
         /text-(blue|red|orange|green|purple|pink|gray|teal|amber|cyan)-500/,
     },
-    // Additional hover utilities
-    { pattern: /hover:border-(blue|red|orange|green|purple|pink)-500/ },
-    { pattern: /hover:bg-(blue|red|orange|green|purple|pink)-100/ },
+    // Même chose au hover : on inclut **toutes** les couleurs listées
+    {
+      pattern:
+        /hover:border-(blue|red|orange|green|purple|pink|gray|teal|amber|cyan)-500/,
+    },
+    {
+      pattern:
+        /hover:bg-(blue|red|orange|green|purple|pink|gray|teal|amber|cyan)-100/,
+    },
     "hover:scale-105",
     "hover:shadow-lg",
     "hover:z-10",

@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import OrgChartNode from "./OrgChartNode";
-import CollapseControl from "./control/CollapseControl";
+import CollapseControl from "./CollapseControl";
 import DetailNode from "./DetailNode";
-import PaginationControl from "./control/PaginationControl";
+import PaginationControl from "./PaginationControl";
 import type { Membre } from "../types/Membre";
 import { orgData } from "../data/orgChartData.generated";
 import { Transition } from "@headlessui/react";
