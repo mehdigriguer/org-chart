@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate": "ts-node --esm ./app/scripts/generateOrgData.ts",
+    "generate": "node --loader ts-node/esm ./app/scripts/generateOrgData.ts",
     "dev": "npm run generate && next dev --turbopack",
     "build": "npm run generate && next build",
     "lint": "next lint"
